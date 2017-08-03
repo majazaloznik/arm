@@ -1,0 +1,565 @@
+# chapter 4
+
+```{r, warning = FALSE, message=FALSE, echo = FALSE}
+library ("arm")
+library(foreign)
+heights <- read.dta ("../data/Book_Codes/Book_Codes/Ch.4/heights.dta")
+attach(heights)
+  # recode sex variable 
+male <- 2 - sex
+```
+## Linear transformations
+
+Do not affect the fit, or predictions, of a classical regeression model - but in a multilevel they can!
+They can improve interpretability though.
+
+
+
+```{r, warning = FALSE, message=FALSE, echo = FALSE}
+  # (for simplicity) remove cases with missing data
+ok <- !is.na (earn+height+sex) & earn>0
+heights.clean <- as.data.frame (cbind (earn, height, male)[ok,])
+n <- nrow (heights.clean)
+detach(heights)
+rm(male)
+attach(heights.clean)
+height.jitter.add <- runif(n, -.2, .2)
+rm(heights)
+## Model fit
+lm.earn <- lm (earn ~ height)
+display (lm.earn)
+sim.earn <- sim (lm.earn)
+beta.hat <- coef(lm.earn)
+
+par(mfrow = c(1,2))
+## Figure 4.1 (left)
+par (mar=c(6,6,4,2)+.1)
+plot (height + height.jitter.add, earn, xlab="height", ylab="earnings", pch=20, mgp=c(4,2,0), yaxt="n", col="gray10",
+     main="Fitted linear model")
+axis (2, c(0,100000,200000), c("0","100000","200000"), mgp=c(4,1.1,0))
+for (i in 1:20){
+  curve (sim.earn@coef[i,1] + sim.earn@coef[i,2]*x, lwd=.5, col="gray", add=TRUE)}
+curve (beta.hat[1] + beta.hat[2]*x, add=TRUE, col="red")
+
+## Figure 4.1 (right) 
+par (mar=c(6,6,4,2)+.1)
+plot (height + height.jitter.add, earn, xlab="height", ylab="earnings", pch=20, mgp=c(4,2,0), yaxt="n", col="gray10",
+     main="Fitted linear model",xlim=c(0,80),ylim=c(-200000,200000))
+axis (2, c(-100000,0,100000), c("-100000","0","100000"), mgp=c(4,1.1,0))
+for (i in 1:20){
+  curve (sim.earn@coef[i,1] + sim.earn@coef[i,2]*x, lwd=.5, col="gray", add=TRUE)}
+curve (beta.hat[1] + beta.hat[2]*x, add=TRUE, col="red")
+
+
+```
+
+## Centering and standardizing, especially models with interacitons
+
+From chapter 3 we had the kids score model with the mom hs and iq interaciton.
+
+```{r}
+kidiq <- read.dta("../data/child.iq/kidiq.dta")
+attach(kidiq)
+fit.4 <- lm (kid_score ~ mom_hs + mom_iq + mom_hs*mom_iq)
+display(fit.4)
+ # centering by subtracting the mean
+c_mom_hs <- mom_hs - mean(mom_hs)
+c_mom_iq <- mom_iq - mean(mom_iq)
+
+fit.5 <- lm (kid_score ~ c_mom_hs + c_mom_iq + c_mom_hs:c_mom_iq)
+display(fit.5)
+```
+First one is difficult to interpret, since the 51.27 coefficient e.g. applies to those with mom-iq = 0, which  doesn't happen. So instead we can center the predictors on the mean, and so in the second regression we can interpret them relative to the mean of the data. 
+
+So now a change of mom_hs of one (that is having completed highschool) is related to a child's score increase of 2.84 among those with an average mom IQ of `r mean(mom_iq)`. 
+
+```{r}
+## Figure 4.1 (right) 
+par(mfrow = c(1,1))
+plot(c_mom_iq,kid_score, xlab="Mother IQ score - centered", 
+  ylab="Child test score",pch=20, xaxt="n", yaxt="n", col= mom_hs+1)
+curve(cbind(1,1,x,1*x) %*% coef(fit.5), col = 2, add = TRUE)
+curve(cbind(1,0,x,0*x) %*% coef(fit.5), col = 1, add = TRUE)
+axis(1)
+axis(2)
+
+```
+
+Another option is to center on an understandable reference point, for example the midpoint of the range. 
+```{r}
+c2_mom_hs <- mom_hs - 0.5
+c2_mom_iq <- mom_iq - 100
+fit.6 <- lm (kid_score ~ c2_mom_hs + c2_mom_iq + c2_mom_hs:c2_mom_iq)
+display(fit.6)
+```
+
+So centering helps interpret the main effects sensibly, but there's still the scaling problem. mom_hs beta is much larger than mom_iq beta, but that's misleading. Then you can also do a z-score standardization, OR, subtract the mean and divide by 2 standard deviations, which is what Gelman et al do instead. 
+
+```{r}
+c3_mom_hs <- (mom_hs - mean(mom_hs))/(2*sd(mom_hs))
+c3_mom_iq <-  (mom_iq - mean(mom_iq))/(2*sd(mom_iq))
+fit.7 <- lm (kid_score ~ c3_mom_hs + c3_mom_iq + c3_mom_hs:c3_mom_iq)
+display(fit.7)
+```
+
+Why two sds and not one? "To manitain coherence when considering binary input variables". So they can be compared to unscaled predictors for binary variables.  Interpretation is now: if you go from one sd under the mean of mom iq to one sd over the mean, the child's score increases by `r coef(fit.7)[3]` (for the case where mom_hs is 0.5). 
+There is a whole paper here [[http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.300.162&rep=rep1&type=pdf]] on this.
+
+But the point is that if you divide by 2 sd then you don't need to divide the binary, just subtract the mean, although I'm not clear why you wouldn't divide the binary as well, since it's easy to do - and this isn't precise? 
+
+```{r}
+c4_mom_hs <- mom_hs - mean(mom_hs)
+c4_mom_iq <-  (mom_iq - mean(mom_iq))/(2*sd(mom_iq))
+fit.8 <- lm (kid_score ~ c4_mom_hs + c4_mom_iq + c4_mom_hs:c4_mom_iq)
+display(fit.8)
+```
+
+## Correlation and regression to the mean
+
+If you have a simple single predictor regression, and both x and y are standardized, then the intercept is zero and the slope is the correlation between them. 
+
+```{r}
+# from https://stats.stackexchange.com/questions/15011/generate-a-random-variable-with-a-defined-correlation-to-an-existing-variable
+# how to get simulated data with a specific correlation
+n     <- 100                   # length of vector
+rho   <- 0.5                  # desired correlation = cos(angle)
+theta <- acos(rho)             # corresponding angle
+x1    <- rnorm(n )        # fixed given data
+x2    <- rnorm(n)      # new random data
+X     <- cbind(x1, x2)         # matrix
+Xctr  <- scale(X, center=TRUE, scale=FALSE)   # centered columns (mean 0)
+
+Id   <- diag(n)                               # identity matrix
+Q    <- qr.Q(qr(Xctr[ , 1, drop=FALSE]))      # QR-decomposition, just matrix Q
+P    <- tcrossprod(Q)          # = Q Q'       # projection onto space defined by x1
+x2o  <- (Id-P) %*% Xctr[ , 2]                 # x2ctr made orthogonal to x1ctr
+Xc2  <- cbind(Xctr[ , 1], x2o)                # bind to matrix
+Y    <- Xc2 %*% diag(1/sqrt(colSums(Xc2^2)))  # scale columns to length 1
+
+y <- Y[ , 2] + (1 / tan(theta)) * Y[ , 1]     # final new vector
+cor(x1, y)
+z.y <- (y-mean(y))/sd(y)
+z.x1 <- (x1-mean(x1))/sd(x1)
+par(mfrow = c(1,2))
+plot(z.y,z.x1, xlim = c(-2,2), ylim = c(-2,2), pch = 19)
+abline(a =0, b = 1)
+plot(z.y,z.x1, xlim = c(-2,2), ylim = c(-2,2), pch = 19)
+abline(lm(z.y~z.x1))
+display(lm(z.y~z.x1))
+```
+
+## Logarighmic transformations
+
+"When additivity and linearity are not reasonable assumptions a nonlinear transformation can sometimes remedy the situation."
+
+* if the outcome is all positive then taking the logarithm makes sense, because it ensures the predictiins are always positive. 
+* A linear mode on the logarithmic scale also corresponds to a multiplicative model on the original scale!
+ 
+```{r}
+log.earn <- log(earn)
+earn.logmodel.1 <- lm(log.earn ~ height)
+display(earn.logmodel.1)
+jitter.height <-height +runif(length(height), -0.1, 0.1)
+par(mfrow = c(1,2))
+plot(log.earn ~ (jitter.height))
+simz <- sim(earn.logmodel.1)
+for (i in 1:25){
+  abline(simz@coef[i,], col = "gray")}
+abline(earn.logmodel.1, col = "red")
+plot(earn ~ jitter.height)
+simz <- sim(earn.logmodel.1)
+for (i in 1:25){
+  curve(exp(simz@coef[i,1]+simz@coef[i,2]*x), 
+        add = TRUE, col = "gray")}
+curve(exp(coef(earn.logmodel.1)[1]+coef(earn.logmodel.1)[2]*x), add = TRUE, col = "red")
+```
+
+
+Interesting reason for using natural log scales: "because coefficients are then directly interpretable as apporximate proportional differences." in this example the coefficient of 0.06 meant that one unit increase in height meant approximately 6% increase in earnings $e^{0.06}=$ `r exp(0.06)`. But this only applies to small coefficients!
+
+### Now let's add another predictor
+
+```{r}
+earn.logmodel.2 <- lm(log.earn ~ height + male)
+display(earn.logmodel.2)
+```
+
+After controling for sex, one inch in height corresponds to approx 2% higher earnings. 
+
+Gender however has a massive impact: $e^{0.42}=$ `r exp(0.42)`.so  that's a 52 % higher predicted earnings for a man than for a woman of the same height. 
+
+### And an interaction term as well 
+
+
+```{r}
+earn.logmodel.3 <- lm(log.earn ~ height + male + height:male)
+display(earn.logmodel.3, digits=3)
+```
+
+So the 
+
+* intercept - $e^{8.39}=$ `r exp(8.39)` is the predicted earnings if both height and male are zero. this has no direct meaning
+
+* height coefficient $e^{0.017}=$ `r exp(0.017)` means that an increase in earnings per inch---if male equals zero---is about two percent. But it is not significant - less than two standard errors from zero.
+
+* male coefficient $e^{-0.079}=$ `r exp(-0.079)` means---if height equals 0---then going from female to male increases your earnings by 8%. But this doesn't exist, so interpretation is impossible.
+
+* interaction term is the difference in slopesof the lines, so for women we said it was 1.7, so for men it is then 1.7+0.7 = 2.4%. It isn't significant - but it is plausible: that the correlation between height and earnings might be stronger for men than for women. 
+
+```{r}
+jitter.height <-height +runif(length(height), -0.1, 0.1)
+par(mfrow = c(1,2))
+plot(log.earn ~ (jitter.height), col= male+1)
+
+curve(coef(earn.logmodel.3)[1]+coef(earn.logmodel.3)[2]*x, add = TRUE, col = "black") # male = 0
+curve(coef(earn.logmodel.3)[1]+coef(earn.logmodel.3)[2]*x
+      +coef(earn.logmodel.3)[3]+coef(earn.logmodel.3)[4]*x, add = TRUE, col = "red") # male = 1
+
+plot(earn ~ (jitter.height), col= male+1)
+curve(exp(coef(earn.logmodel.3)[1]+coef(earn.logmodel.3)[2]*x), add = TRUE, col = "black") # male = 0
+curve(exp(coef(earn.logmodel.3)[1]+coef(earn.logmodel.3)[2]*x
+      +coef(earn.logmodel.3)[3]+coef(earn.logmodel.3)[4]*x), add = TRUE, col = "red") # male = 1
+
+```
+
+
+### But let's transform the inputs to make the coefficients interpretable instead
+
+Well this is kind of silly, he does the whole 2 standard deviations thing before, why not now, especially since we have a binary variable as well. I'll do it here though and compare:
+
+```{r,echo=FALSE}
+z.height <- (height - mean(height))/(sd(height))
+earn.logmodel.4 <- lm(log.earn ~ z.height + male + z.height:male)
+display(earn.logmodel.4)
+z2.height <- (height - mean(height))/(2*sd(height))
+earn.logmodel.5 <- lm(log.earn ~ z2.height + male + z2.height:male)
+display(earn.logmodel.5)
+```
+
+* intercept $e^{9.53}=13766.59$ is the predicted earnings of someone with z.height and male equaling zero: a 66.9inches tall woman. 
+* the z.height coefficient $e^{0.07}=$ `r exp(0.07)`-- means that a standard deviation increase in height would increase the earnings of a woman by 7%. And the z2.height one means that going form 1 sd under to 1sd over the mean in height, would increase her earnings by $e^{0.13}=$ `r exp(0.13)`
+* the male coefficient means that for a person of 66.9 inches height, switching from female to male would increase earnings  $e^{0.42}=$ `r exp(0.42)` massively, by 53 percent,
+* the interaction term means that the slope for average men is 7% as we said, so for women it's 10% (double for z2). So a 1 sd deviation (3.8 inch) increase in height correspodns to 10% increase in earnings for men, but only 7 % for women.
+
+### Log-log model
+```{r}
+log.height <- log(height)
+earn.logmodel.6 <- lm(log.earn ~ log.height + male )
+display(earn.logmodel.6, digits=3)
+```
+So a one percent increase in height predicts a 1.41% difference in earnings.
+
+## Other transformations
+
+* square root - compresses high values more mildly than the logarithm. But these lack easy interpretability. And it's non-monotonic, so negative predictions get amplified positively. 
+* idiosyncratic transformations. e.g. actual earingins are either zero or some positive value. we could split the model into two, first logistic for yes/no earnings, and then log trasformed regression like above. or if you had assets instead, negative, zero, or positive. then you could do e.g. a discrete scale e.g. -1000,-100,0,100,1000:-2, -1,-,1,2. 
+* don't discretize predictors from continuous variables (except to model non-linearity as we'll  see later) because you're just loosing information this way. 
+* sometimes you can discretise if other transformations don't seem appropriate. e.g. modelling age as generations in e.g. political preference modelling since generational effects seem like a reasonable pattern. 
+* index vs indicator variables. index divides the populaiton into categories. indicator is yes/no. So one index variable with three categories is transformed into 3 indicator variables. which you include in your regression affects interpretability. 
+
+*Indentifiability* of the model--its parameters can be estimated uniquely.
+
+* Most familiar issue arises from colinearity: when there is a set of predictors with a linear combination that equals zero for all of the data 
+* e.g. if you include indicator variables (based on an index variable with $J$ values) you can only include $J-1$ of them. Otherwise they would be collinear with the constant term (which you could remove, but you can only do this once, so if you have several sets of indicator variables that would not be a solution.)
+
+## Building regression models for prediction (not for causal inference though!)
+
+### General principles
+
+* include all input variables that for substantive reasons might be important to the outcome
+* you don't necessariliy need to include all of them separately, sometimes an average or sum score can be used as a single predictor
+* inputs with large effects you should consider including an interaction as well. 
+
+Decision rules based on expected sign and significance (more than 2 standard errors from 0):
+
+* not significant but has expected sign, keep it in
+* not significant and wrong sign - consider removing it
+* is significang and wrong sign - think hard! Try to include lurking variables
+* is significant and correct sign, by all means keep it in!
+
+*But the assumption is you thought long and hard about the relationships before fitting the model. *
+
+```{r, echo = FALSE}
+mesquite <- read.table("../data/mesquite/mesquite.dat",header=TRUE)
+attach(mesquite)
+weight <- LeafWt
+diam1 <- Diam1
+diam2 <- Diam2
+canopy.height <- CanHt
+total.height <- TotHt
+density <- Dens
+group <- ifelse (Group == "MCD", 0, 1)
+fit.1 <- lm(weight ~ diam1 + diam2 + canopy.height + total.height + density + group)
+display(fit.1)
+```
+
+Then it might be more reasonable to have the effects be multiplicative rather than additive. And log both so they can be directly interpreted as percentages:
+
+```{r}
+fit.2 <- lm (log(weight) ~ log(diam1) + log(diam2) + log(canopy.height) + log(total.height) + 
+   log(density) + group)
+display(fit.2)
+
+```
+
+So an increase in canopy height of one percent increases leaf weight by (approximately) 0.37 %. 
+
+$(1.01^{\beta_3}=$ `r (1.01^(coef(fit.2)[[4]]))'
+
+But we might want to start with a simpler model:
+
+```{r}
+canopy.volume <- diam1 * diam2 * canopy.height
+fit.3 <- lm(log(weight) ~ log(canopy.volume) )
+display(fit.3)
+```
+
+"weight is therefore proportional to the volume to the 0.72nd power. It is perhaps surprising that the power is not closer to 1. The usual explanation is that there is variation in canopy.volume that is unrelated to the weight of the leaves, and this tends to attenuate the regression coefficient. 
+
+```{r}
+canopy.area <- diam1 * diam2 
+canopy.shape <- diam1/diam2
+fit.4 <- lm(log(weight) ~ log(canopy.volume) + log(canopy.area) + log(canopy.shape) +
+              log(total.height) + log(density) + group)
+display(fit.4)
+```
+
+This has the same fit as model 2, but the coefficients are easer to interpret. 
+
+* Now shape and volume are boh positively related to weight, but neither is significant. but we keep them both because they make sense. 
+* the shape coefficient beign negative implies a more circular crossection is better (although not significant), shouldwe keep it in?
+* height makes sense (especially if the trees are planted close together) although also not sig.
+* what about density? manye remove it?
+
+```{r}
+fit.5 <- lm(log(weight) ~ log(canopy.volume) + log(canopy.area) + 
+               group)
+display(fit.5)
+```
+
+very similar to if you include height and shape as well. It would also be a good idea to include the group interactions, but with only 46 data points it is impossible ot estimate the interactions accurately - none are significant. In the end there is no clean way of choosing between the models.. 
+
+But here is a visualisation of this model with canopy volume and area and group. 
+
+```{r, echo= FALSE}
+par(mfrow = c(1,2))
+plot(log(weight) ~ log(canopy.volume), col= group+1, pch = 19)
+curve(coef(fit.5)[1]+coef(fit.5)[2]*x + coef(fit.5)[3]+coef(fit.5)[4], add = TRUE, col = "red") # male = 0
+curve(coef(fit.5)[1]+coef(fit.5)[2]*x + coef(fit.5)[3], add = TRUE, col = "black") # male = 0
+
+plot(weight ~ canopy.volume, col= group+1, pch = 19)
+curve(exp(coef(fit.5)[1]+coef(fit.5)[2]*log(x) + coef(fit.5)[3]+coef(fit.5)[4]), add = TRUE, col = "red") # male = 0
+curve(exp(coef(fit.5)[1]+coef(fit.5)[2]*log(x) + coef(fit.5)[3]), add = TRUE, col = "black") # male = 0
+
+```
+
+
+## Fitting a series of regressions
+
+More informal than multilevel modelling - where you pool information on the paremeters of repeated regressions - but you can separately estimate the regression for each time period and display them together. 
+
+```{r, echo - FALSE}
+
+brdata <- read.dta("../data/nes/nes5200_processed_voters_realideo.dta",convert.factors=F)
+# Data are at http://www.stat.columbia.edu/~gelman/arm/examples/nes
+
+ # Clean the data
+brdata <- brdata[is.na(brdata$black)==FALSE&is.na(brdata$female)==FALSE&is.na(brdata$educ1)==FALSE
+&is.na(brdata$age)==FALSE&is.na(brdata$income)==FALSE&is.na(brdata$state)==FALSE,]
+kept.cases <- 1952:2000
+matched.cases <- match(brdata$year, kept.cases)
+keep <- !is.na(matched.cases)
+data <- brdata[keep,]
+plotyear <- unique(sort(data$year))
+year.new <- match(data$year,unique(data$year))
+n.year <- length(unique(data$year))
+income.new <-data$income-3
+age.new <- (data$age-mean(data$age))/10
+y <- data$rep_pres_intent
+data <- cbind(data, year.new, income.new, age.new, y)
+nes.year <- data[,"year"]
+age.discrete <- as.numeric (cut (data[,"age"], c(0,29.5, 44.5, 64.5, 200)))
+race.adj <- ifelse (data[,"race"]>=3, 1.5, data[,"race"])
+data <- cbind (data, age.discrete, race.adj)
+
+female <- data[,"gender"] - 1
+black <- ifelse (data[,"race"]==2, 1, 0)
+rvote <- ifelse (data[,"presvote"]==1, 0, ifelse(data[,"presvote"]==2, 1, NA))
+
+region.codes <- c(3,4,4,3,4,4,1,1,5,3,3,4,4,2,2,2,2,3,3,1,1,1,2,2,3,2,4,2,4,1,1,4,1,3,2,2,3,4,1,
+   1,3,2,3,3,4,1,3,4,1,2,4)
+attach(data)
+ # Regression & plot
+
+regress.year <- function (yr) {
+  this.year <- data[nes.year==yr,]
+  lm.0 <- lm (partyid7 ~ real_ideo + race.adj + factor(age.discrete) + educ1 + gender + income,
+      data=this.year)
+  coefs <- summary(lm.0)$coef[,1:2]
+}
+
+summary <- array (NA, c(9,2,8))
+for (yr in seq(1972,2000,4)){
+  i <- (yr-1968)/4
+  summary[,,i] <- regress.year(yr)
+}
+yrs <- seq(1972,2000,4)
+coef.names <- c("Intercept", "Ideology", "Black", "Age.30.44", "Age.45.64", "Age.65.up", 
+   "Education", "Female", "Income")
+
+par (mfrow=c(2,5), mar=c(3,4,2,0))
+for (k in 1:9){
+  plot (range(yrs), range(0,summary[k,1,]+.67*summary[k,2,],summary[k,1,]-.67*summary[k,2,]), 
+     type="n", xlab="year", ylab="Coefficient", main=coef.names[k], mgp=c(1.2,.2,0), cex.main=1,
+      cex.axis=1, cex.lab=1, tcl=-.1)
+  abline (0,0,lwd=.5, lty=2)
+  points (yrs, summary[k,1,], pch=20, cex=.5)
+  segments (yrs, summary[k,1,]-.67*summary[k,2,], yrs, summary[k,1,]+.67*summary[k,2,], lwd=.5)
+}
+```
+
+
+# Exercises
+
+## 4.1 
+
+$log(weight) = -3.5 + 2.0 log(height) + error$
+"errors have a standard deviation of 0.25"
+
+Approx 68% of peole have weights within +/- `r exp(0.25)` of the predicted values from the regression.
+
+From  https://github.com/IamGianluca/arm/blob/master/ch4/arm_ch4p1.md
+
+```{r, echo = FALSE}
+female.heights <- rnorm(n=50, mean=63.8, sd=3) # females
+male.heights <- rnorm(n=50, mean=69.7, sd=3.1) # males
+heights <- c(female.heights, male.heights) 
+log.heights <- log(heights)
+
+# create a vector of log weights based on the formula given in the the exercise
+log.weights <- -3.5 + 2 * log.heights + rnorm(n=length(heights), mean=0, sd=0.25)
+par(mfrow = c(1,1))
+plot(log.weights ~ log.heights)
+m1 <- lm(log.weights ~ log.heights)
+display(m1)
+simz <- sim(m1)
+for (i in 1:20){
+  abline(simz@coef[i,], col = "gray")
+}
+abline(m1, lwd = 2)
+curve(-3.5 + 2 * x, add = TRUE, lty = 3, col = "red")
+```
+
+
+## 4.2 
+Didn't really bother, there is no weight in the data.. 
+```{r, echo = FALSE, warning=FALSE, message=FALSE }
+library(dplyr)
+raw <- read.dta("../data/earnings/heights.dta")
+clean <- select(raw, earn, height, sex, ed, yearbn)
+
+clean <- clean[complete.cases(clean),]
+clean <- filter(clean,earn > 0)
+attach(clean)
+z.height <- (height-mean(height))/sd(height)
+summary(clean)
+log.earn <- log(earn)
+sex <- sex-mean(sex)
+fit1 <- lm(log.earn ~ z.height+ sex)
+display(fit1)
+
+fit1 <- lm(log.earn ~ z.height+ sex + ed)
+display(fit1)
+
+
+```
+
+## 4.3
+
+```{r, echo = FALSE}
+plot(1, xlim = c(0,8), ylim = c(150, 250), type = "n", ylab = "weight")
+curve(161.0 + 2.6*x, col = "blue", lwd = 2, add = TRUE)
+curve(96.2 + 33.6*x - 3.2 * x^2, col = "red", lwd = 2, lty = 2, add = TRUE)
+curve( 157.2 + 19.1 + 0*x,  from = 3, to = 4.4, lwd = 2, col = "green", add = TRUE)
+curve( 157.2 + 27.2+ 0*x,  from = 4.5, to = 6.4, lwd = 2, col = "green", add = TRUE)
+curve( 157.2 + 8.5+ 0*x,  from = 6.5, to = 8, lwd = 2, col = "green", add = TRUE)
+```
+
+##4.4
+
+```{r}
+df <- read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/pollution/pollution.dta")
+head(df)
+clean <- select(df, mort, nox, so2, hc)
+
+attach(clean)
+plot(mort ~ nox, pch = 19)
+fit.1 <- lm(mort ~ nox)
+abline(fit.1)
+display(fit.1)
+plot(predict(fit.1), mort-predict(fit.1))
+
+```
+
+
+```{r}
+nox.t <- log(nox)
+plot(mort ~ nox.t, pch = 19)
+fit.2 <- lm(mort ~ nox.t)
+simz <- sim(fit.2)
+for (i in 1:50){
+  abline(simz@coef[i,], col = "gray")
+}
+abline(fit.2, col = "red", lwd = 2)
+display(fit.2)
+plot(predict(fit.2), mort-predict(fit.2))
+sd(mort-predict(fit.2))
+```
+
+Because I only have the input logged, the interpretation is that an increase of 1 for log(nox) will lead to an increased mortality rate by 15. So because .log(x) + 1 = log(x) + log(e) = log(x*e) this means the same as mulitplying nox by 2.72. So increaseing nox by 172 % will increase mort by 15.34.
+
+```{r}
+nox.t <- log(nox)
+nox.z <- (nox - mean(nox))/sd(nox)*0.5
+so2.t <- log(so2)
+so2.z <- (so2-mean(so2))/sd(so2)*0.5
+hc.t <- log(hc)
+hc.z <- (hc-mean(hc))/sd(hc)*0.5
+fit.3 <- lm(log(mort) ~ nox.z + so2.z + hc.z)
+display(fit.3)
+
+plot(log(mort) ~ nox.z, pch = 19)
+curve(coef(fit.3)[1] + coef(fit.3)[2]*x + coef(fit.3)[3] + coef(fit.3)[4], add = TRUE)
+plot(log(mort) ~ so2.z, pch = 19)
+curve(coef(fit.3)[1] + coef(fit.3)[2] + coef(fit.3)[3]*x + coef(fit.3)[4], add = TRUE)
+plot(log(mort) ~ hc.z, pch = 19)
+curve(coef(fit.3)[1] + coef(fit.3)[2] + coef(fit.3)[3] + coef(fit.3)[4]*x, add = TRUE)
+
+
+```
+
+
+```{r, echo = FALSE}
+train <- clean[1:(nrow(clean)/2), ]
+test <- clean[((nrow(clean)/2)+1):nrow(clean), ]
+Fun2Z <- function(x){
+  (x-mean(x))/(2*sd(x))
+}
+train <- train %>% 
+  mutate(nox.z = Fun2Z(nox),
+         so2.z = Fun2Z(so2),
+         hc.z = Fun2Z(hc))
+fit.3.train <- lm(log(mort) ~ nox.z + so2.z + hc.z, data = train)
+
+test <- test %>%
+  mutate(nox.z = Fun2Z(nox),
+         so2.z = Fun2Z(so2),
+         hc.z = Fun2Z(hc))
+
+test.predictions <- predict(fit.3.train, test)
+plot(log(mort)~so2.z)
+plot(exp(test.predictions), test$mort)
+abline(a=0, b=1)
+points(train$so2.z, log(train$mort), col = "red", pch =19)
+
+```

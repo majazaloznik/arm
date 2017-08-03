@@ -1,0 +1,212 @@
+# Chapter 5
+
+The probability of a binary event $Pr(y_i=1) = p_i$ needs to be mapped onto a 0-1 range. You do that with the logit function. The logit funciton maps from 0:1 to $-\infty$ to + $\infty$:
+$logit(x) = log \frac{x}{1-x}$
+
+$logit(p_i) = X_i \beta$
+
+so that's 
+
+$Pr(y_i=1) = logit^{-1}(X_i \beta) $
+
+So you need it's inverse $logit^{-1}(x) = \frac{e^x}{1+e^x}$
+
+```{r, echo = FALSE, message= FALSE, warning=FALSE}
+library(arm)
+library(foreign)
+brdata <- read.dta("../data/nes/nes5200_processed_voters_realideo.dta", convert.factors = FALSE)
+
+brdata <- brdata[is.na(brdata$black)==FALSE&is.na(brdata$female)==FALSE&is.na(brdata$educ1)==FALSE
+&is.na(brdata$age)==FALSE&is.na(brdata$income)==FALSE&is.na(brdata$state)==FALSE,]
+kept.cases <- 1952:2000
+matched.cases <- match(brdata$year, kept.cases)
+keep <- !is.na(matched.cases)
+data <- brdata[keep,]
+plotyear <- unique(sort(data$year))
+year.new <- match(data$year,unique(data$year))
+n.year <- length(unique(data$year))
+income.new <-data$income-3
+age.new <- (data$age-mean(data$age))/10
+y <- data$rep_pres_intent
+data <- cbind(data, year.new, income.new, age.new, y)
+nes.year <- data[,"year"]
+age.discrete <- as.numeric (cut (data[,"age"], c(0,29.5, 44.5, 64.5, 200)))
+race.adj <- ifelse (data[,"race"]>=3, 1.5, data[,"race"])
+data <- cbind (data, age.discrete, race.adj)
+
+female <- data[,"gender"] - 1
+black <- ifelse (data[,"race"]==2, 1, 0)
+rvote <- ifelse (data[,"presvote"]==1, 0, ifelse(data[,"presvote"]==2, 1, NA))
+
+region.codes <- c(3,4,4,3,4,4,1,1,5,3,3,4,4,2,2,2,2,3,3,1,1,1,2,2,3,2,4,2,4,1,1,4,1,3,2,2,3,4,1,
+   1,3,2,3,3,4,1,3,4,1,2,4)
+attach(brdata)
+```
+
+```{r, echo = FALSE, message= FALSE, warning=FALSE}
+yr <- 1992
+  ok <- nes.year==yr & presvote<3 
+  vote <- presvote[ok] - 1
+  income <- data$income[ok]
+fit.1 <- glm(vote ~ income, family = binomial(link = "logit"))
+display(fit.1)
+
+```
+
+So here we've got the probability of Bush's support at the average respondednts income:
+```{r}
+invlogit(coef(fit.1)[1] + coef(fit.1)[2]*mean(income, na.rm = TRUE))
+```
+
+So for respondents with an income level of 3.07, the probability of voting for Bush is 0.40. 
+The difference of one in income corresoinds to a .33 increase in the logit probability of Bush's support:
+
+$logit^{-1}(-1.40+0.33*3) - logit^{-1}(-1.40+0.33*2)$ = `r invlogit(coef(fit.1)[1] + coef(fit.1)[2]*3) - invlogit(coef(fit.1)[1] + coef(fit.1)[2]*2)`
+
+So that's an increase of 7.4 %. 
+
+There's a divide by 4 rule: if you take the coefficient and divide it by 4 it gives you the upper bound of an increase  corresponding to 1 unit increase in the predictor - this happens at the .5 probability.
+
+```{r, echo = FALSE}
+jitter.income <- income + (runif(length(income), -0.2, +0.2))
+jitter.vote<- vote + (runif(length(vote), 0, +0.1))
+plot(jitter.vote~ jitter.income)
+fit.1 <- glm(vote ~ income, family = binomial(link = "logit"))
+sim <- sim(fit.1)
+for (i in 1:50){
+  curve(invlogit(sim@coef[i,1] + sim@coef[i,2]*x), add = TRUE, col = "gray", lwd= 1.5)
+}
+curve(invlogit(coef(fit.1)[1] + coef(fit.1)[2]*x), add = TRUE, col = "red", lwd = 2)
+
+```
+
+
+### Fitting and displaying the model
+
+So here's the data for all the years and you can see that income has always been predicitive of republican voting intention, but has gotten stronger over the years.
+
+
+```{r}
+coefs <- array(NA, c(24,3))
+
+for (i in 1:length(unique(nes.year))){
+  ok <- nes.year==unique(nes.year)[i] & presvote<3 
+  sum(ok, na.rm = TRUE)
+  vote <- presvote[ok] - 1
+  income <- data$income[ok]
+ if(sum(ok, na.rm = TRUE) > 0) {
+     fit <- glm(vote ~ income, family = binomial(link = "logit"))
+  coefs[i,] <- c(unique(nes.year)[i], coef(summary(fit))[2,1:2])}
+}
+
+coefs <- coefs[complete.cases(coefs),]
+
+  plot (range(coefs[,1]), range(0,coefs[,2]+.67*coefs[,3],coefs[,2]-.67*coefs[,3]), 
+     type="n", xlab="year", ylab="Coefficient", mgp=c(1.2,.2,0), cex.main=1,
+      cex.axis=1, cex.lab=1, tcl=-.1)
+  
+  points (coefs[,1],coefs[,2], pch=20)
+  segments (coefs[,1], coefs[,2]+.67*coefs[,3], coefs[,1], coefs[,2]-.67*coefs[,3], lwd=.5)
+
+```
+
+## Latent data fromulation 
+
+Logistic regression interpretation: 
+
+* direct: as a nonlinear model for the probabilty of a success given some predictors
+* indiredct: using latent variables:
+
+$y_i = \begin{cases} 
+1 & \quad if z_i >0 \\
+o  & \quad if z_i < 0 \\
+\end{cases}$
+$z_i = X_i \beta + \varepsilon_i$
+
+with independent errors $\varepsilon_i$ that have a logistic  probability distribution. 
+ 
+The **logistic probability distribution** is defined as
+
+$Pr(\varepsilon_i < x) = logit ^{-1}(x)\quad  for \quad  all \quad  x$
+
+```{r, echo = FALSE}
+x <- seq(-6, 6, length.out = 200)
+y <- dlogis(x)
+plot(x, y, type = "l")
+```
+
+So the same as the first equation above: $Pr(y_i=1)$ is the same as $Pr(z_i>0)$ and that's the same as the error being larger than the linear term $P(X_i \beta   - \varepsilon_i < 0)$ which is the inverse logit $logit ^{-1}(X_i \beta)$
+
+So here's what it looks like graphically: - remember, the formula was $logit^{-1}(-1.40+0.33*x_i)$, so a person with income 1, for them the linear predictor is $-1.40 + 0.33 = -1.07$. The curve in the figure is the distribution of the latent variable $z_i$: because it's value is -1.07 + the error. So and the shaded area is the probability of $z_i$ is more than zero, which is the same as saying the probability that $y_i = 1$. In this example it is $logit^{-1}(-1.07)=$ `r invlogit(-1.07)`
+
+```{r, echo = FALSE, fig.cap = "Fig: Latent variable formulation of logit"}
+x <- seq(-6, 6, length.out = 200)
+z <- x -1.07
+y <- dlogis(x)
+plot(z, y, type = "l")
+polygon(c(  z[z>=0], min(z[z>=0]) ),  c( y[z>=0],min(y[z>=0]) ), col="gray80")
+```
+
+This is a computational trick, but can also be interpreted substantively: in  the survey y=1 for Bush supporters and y=0 for Clinton supporters. The "unobserved continuous variable $z_i$ can be interpreted as the respondent's utility or preference for Bush relative to Clinton - the sign tells you which candidate is preferred and the magniture the strenght of preference."
+
+The logistic density function is very close to a normal with sd = about 1.6, the unit of the logistic distribution. The error of the model can not be modelled using a normal though, because you cannot determine the sd parameter. Therefore you model it with a logistic distribution, where you don't have to determine any parameters. 
+
+## Builiding a logistic regression model: wells in Bangladesh
+
+```{r, echo = FALSE}
+wells <- read.table ("../data/arsenic/wells.dat")
+attach(wells)
+dist100 <- dist/100
+fit.1 <- glm(switch ~ dist100, family = binomial(link = "logit"))
+display(fit.1)
+
+par(mfrow = c(1,2))
+jitter.switch <- switch  + (runif(length(switch), 0, +0.1)-0.05)
+plot( jitter.switch ~ dist100)
+sim <- sim(fit.1)
+for (i in 1:50){
+  curve(invlogit(sim@coef[i,1] + sim@coef[i,2]*x), add = TRUE, col = "gray", lwd= 1.5)
+}
+curve(invlogit(coef(fit.1)[1] + coef(fit.1)[2]*x), add = TRUE, col = "red", lwd = 2)
+
+hist(dist100[switch ==1], breaks = seq(0,4,0.20), probability = TRUE, ylim = c(0, 2), main = "Red didn't switch, black did", xlab = "100m")
+lines(density(dist100[switch ==1]))
+hist(dist100[switch ==0], breaks = seq(0,4,0.20),add = TRUE, probability = TRUE)
+lines(density(dist100[switch ==0]), col = "red")
+
+```
+
+So the chart on the left shows the probability of switching is over  60% if you live next to a safe well, and it declines to about 20% if you are more than 300 metres away. 
+
+### Coefficient interpretation:
+
+$Pr(switch = 1) = logit^{-1}(0.61 -0.62 \times distance100)$
+
+So the constant term is interpreted at distance = 0, so $logit^{-1}(0.61) = $`r invlogit(coef(fit.1)[1])`, so about 64% percent. 
+
+The average distance in the dataset $\bar{dist100}=$ `r mean(dist100)`, that's 48 meters, let's see the derivative at that value: 
+
+* The value of the linear predictor at the average distance is then $0.61 - 0.62*0.48 =$ 
+`r 0.61 - 0.62*0.48 `
+* So then the slope at that point is $-0.62 \times e^{0.31}/ (1+e^{0.31})^2 =$ 
+`r -0.62 * exp(0.31)/ (1+exp(0.31))^2`
+* so adding 1 (100 meters) to the distance of the nearest safe well corresponds to the probability of switching falling by about 15 percentage points - we would have gotten the same result with the divide by 4 rule 
+
+
+```{r, echo = FALSE}
+par(mfrow = c(1,2))
+jitter.switch <- switch  + (runif(length(switch), 0, +0.1)-0.05)
+
+fit.2 <- glm (switch ~ dist100 + arsenic, family = binomial(link = "logit"))
+display(fit.2)
+
+plot( jitter.switch ~ dist100, main = "Arsenic level at 0.5 and 1.0 (red) ")
+curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*x + coef(fit.2)[3]*0.5), add = TRUE, lwd = 2)
+curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*x + coef(fit.2)[3]*1), add = TRUE, col = "red", lwd = 2)
+
+plot( jitter.switch ~ arsenic, main = "(distance at 0 and 50 meters (red)")
+curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*.5 + coef(fit.2)[3]*x), add = TRUE, col = "red", lwd = 2)
+curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*0 + coef(fit.2)[3]*x), add = TRUE,  lwd = 2)
+```
+
+And look, the coefficient for distance switched from -0.6 to + 0.9 now that we've added arsenic to the model. This is because wells that are high in arsenic are also likely to be far from a safe well. 
