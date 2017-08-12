@@ -1,3 +1,8 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
 # Chapter 5
 
 The probability of a binary event $Pr(y_i=1) = p_i$ needs to be mapped onto a 0-1 range. You do that with the logit function. The logit funciton maps from 0:1 to $-\infty$ to + $\infty$:
@@ -7,7 +12,7 @@ $logit(p_i) = X_i \beta$
 
 so that's 
 
-$Pr(y_i=1) = logit^{-1}(X_i \beta) $
+$Pr(y_i=1) = logit^{-1}(X_i \beta)$
 
 So you need it's inverse $logit^{-1}(x) = \frac{e^x}{1+e^x}$
 
@@ -182,7 +187,7 @@ So the chart on the left shows the probability of switching is over  60% if you 
 
 $Pr(switch = 1) = logit^{-1}(0.61 -0.62 \times distance100)$
 
-So the constant term is interpreted at distance = 0, so $logit^{-1}(0.61) = $`r invlogit(coef(fit.1)[1])`, so about 64% percent. 
+So the constant term is interpreted at distance = 0, so $logit^{-1}(0.61) =$ `r invlogit(coef(fit.1)[1])`, so about 64% percent. 
 
 The average distance in the dataset $\bar{dist100}=$ `r mean(dist100)`, that's 48 meters, let's see the derivative at that value: 
 
@@ -192,6 +197,8 @@ The average distance in the dataset $\bar{dist100}=$ `r mean(dist100)`, that's 4
 `r -0.62 * exp(0.31)/ (1+exp(0.31))^2`
 * so adding 1 (100 meters) to the distance of the nearest safe well corresponds to the probability of switching falling by about 15 percentage points - we would have gotten the same result with the divide by 4 rule 
 
+
+### Adding another independent (input) variable
 
 ```{r, echo = FALSE}
 par(mfrow = c(1,2))
@@ -203,10 +210,151 @@ display(fit.2)
 plot( jitter.switch ~ dist100, main = "Arsenic level at 0.5 and 1.0 (red) ")
 curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*x + coef(fit.2)[3]*0.5), add = TRUE, lwd = 2)
 curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*x + coef(fit.2)[3]*1), add = TRUE, col = "red", lwd = 2)
+text(2,0.4, "arsenic = 1")
+text(0.5,0.2, "arsenic = 0.5")
 
 plot( jitter.switch ~ arsenic, main = "(distance at 0 and 50 meters (red)")
 curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*.5 + coef(fit.2)[3]*x), add = TRUE, col = "red", lwd = 2)
 curve(invlogit(coef(fit.2)[1] + coef(fit.2)[2]*0 + coef(fit.2)[3]*x), add = TRUE,  lwd = 2)
+text(2,0.9, "distance = 0m")
+text(4,0.5, "distance = 50m")
+
+# # alternative way of writing curves is using matrix notation
+# plot( jitter.switch ~ dist100, main = "Arsenic level at 0.5 and 1.0 (red) ")
+# curve(invlogit(cbind(1, x, 0.5) %*% coef(fit.2)),
+#       add = TRUE, lwd = 2)
+# curve(invlogit(cbind(1, x, 1) %*% coef(fit.2)),
+#       add = TRUE, col = "red", lwd = 2)
+# plot( jitter.switch ~ arsenic, main = "(distance at 0 and 50 meters (red)")
+# curve(invlogit(cbind(1, 0, x) %*% coef(fit.2)),
+#       add = TRUE, lwd = 2)
+# curve(invlogit(cbind(1, 0.5, x) %*% coef(fit.2)),
+#       add = TRUE, col = "red", lwd = 2)
+
 ```
 
-And look, the coefficient for distance switched from -0.6 to + 0.9 now that we've added arsenic to the model. This is because wells that are high in arsenic are also likely to be far from a safe well. 
+So interpretation:
+
+* For two wells with the same arsenic level, an increse in the distance of a safe well by 100 meters, corresponds to the logit probability of switching falling by 0.90. - divide by 4 rule: 22.5 percent lower probability of swithcing. 
+* Increasing the arsenic level by one - at the same distance, increases probability of switching by about 11 percent.
+* You'd think distance is more important than arsenic levels based on this, but you have to see it relative to the variation of the input vairables $sd(dist100) =$  `r sd(dist100)` and   $sd(arsenic) =$  `r sd(arsenic)`. So the correct comparison is the coefficient that corresponds to one standard deviation, so $-0.90*0.38 = -0.34$ for distance and $0.46* 1.1 = 0.51$ for arsenic. So the coefficient is larger for arsenic - relative to it's variation. A 1 standard deviation difference in arsenic corresponds to 13% increased probability, and a one std.dev. difference in distance is an 8% reduced probability. 
+
+And look, the coefficient for distance went from -0.6 to -0.9 now that we've added arsenic to the model. This is because wells that are high in arsenic are also likely to be far from a safe well.
+
+## Logistic regression with interactions
+
+Now we add an interaction term (: or * work the same)
+
+```{r}
+fit.3 <- glm (switch ~ dist100 + arsenic + dist100*arsenic , family = binomial(link = "logit"))
+display(fit.3)
+```
+
+Interpreting it thus (average distance from a safe well is 48m and average level of arsenic is 1.66):
+
+* **Constant term**: $logit^{-1}(-0.15)=$ `r invlogit(coef(fit.3)[1])`, that means there is a 47 percent probability of someone switching if their nearest safe well is 0 meters away and the current arsenic level is 0. So this is meaningless, so we don't actually interpret it.
+* But what is the prediction at the average levels? $logit^{-1}(-0.15 - 0.48*0.58 +0.56* 1.66 -0.18 * 1.66*0.48)=$ `r invlogit(coef(fit.3)[1] + coef(fit.3)[2]*mean(dist100) + coef(fit.3)[3]*mean(arsenic) + coef(fit.3)[4]*mean(dist100)*mean(arsenic))`, so that means at the average distance and arsenic levels the probability is 59 percent.
+* **Coefficient for distance** - means a change in 100m when arsenic is 0, so again we don't interpret this. Instead look at what happens at average arsenic levels, what is the distance coefficient there: $-0.58  -0.18 * 1.66)=$ `r  coef(fit.3)[2]+ coef(fit.3)[4]*mean(arsenic)`, and this is of course on the logit scale, so increasing the distance by 100m at the average arsenic levels will reduce the probability of swithcing by about 22%.
+
+* **Coefficient for arsenic** - means a change in 1 when distance is is 0. Again instead we look at what happens at average distances, what is the arsenic coefficient? $0.586  -0.18 * 0.48)=$ `r  coef(fit.3)[3]+ coef(fit.3)[4]*mean(dist100)`. So 0.47 on the logit scale, which is approx 12% increased probability in switching. 
+
+* **Coefficient of the interaction term** from one direction: for each additional unit of arsenic, -0.18 is subtracted from the distance coefficient. So increasing the arsenic makes the distance coefficient even more important. The importance of distance as a predictior increases for households with higher levels of arsenic.
+* The alternative direction of looking a the term: for every 100meters more, -0.18 is subtracted from the arsenic coefficient. So the importance of arsenic as a predictor decreases the further away a household is from a safe well. 
+
+## Centering the input variables. 
+
+To avoid the silly 0m and 0 arsenic default points to interpret coefficients, we can center the input variables instead. 
+
+``` {r, echo = FALSE}
+c.dist100 <- dist100-mean(dist100)
+c.arsenic <- arsenic-mean(arsenic)
+
+fit.4 <- glm (switch ~ c.dist100 + c.arsenic + c.dist100*c.arsenic , family = binomial(link = "logit"))
+ display(fit.4)
+```
+
+And now you can see the same interpretation for the coefficients as we got before:
+
+* **Constant term** $logit^{-1}(0.35)=$ `r invlogit(coef(fit.4)[1])`, so that's the same 59 percent probability at average distance and arsenic levels we found above
+* **Coefficient of distance** rule of 4: 0.88/4, so about 22% reduced chance of switching at mean arsenic levels for every 100meters increase in distance
+* **Coefficient of arsenic** rule of 4: 0.47/4, so about 12% increased chance of switching at mean distance for every increase in arsenic level of one
+* **Coefficient of interaction** has same interpretation as before. 
+
+The interaction term here is not quite statistically significant, but the negative sign makes sense: arsenic becoming less important the further away the alternative well is. 
+
+Below you can compare the model with the interaction term to the previous one:
+
+
+```{r, echo = FALSE}
+par(mfrow = c(1,2))
+# alternative way of writing curves is using matrix notation
+plot( jitter.switch ~ dist100, main = "Arsenic level at 0.5 and 1.0 (red) ")
+curve(invlogit(cbind(1, x, 0.5, x*0.5 ) %*% coef(fit.3)),
+     add = TRUE, lwd = 2)
+curve(invlogit(cbind(1, x, 1, x) %*% coef(fit.3)),
+     add = TRUE, col = "red", lwd = 2)
+curve(invlogit(cbind(1, x, 0.5) %*% coef(fit.2)),
+     add = TRUE, lwd = 1, lty=2)
+curve(invlogit(cbind(1, x, 1) %*% coef(fit.2)),
+     add = TRUE, col = "red", lwd = 1, lty =2)
+text(2,0.4, "arsenic = 1")
+text(0.5,0.2, "arsenic = 0.5")
+
+plot( jitter.switch ~ arsenic, main = "(distance at 0 and 50 meters (red)")
+curve(invlogit(cbind(1, 0, x, 0) %*% coef(fit.3)),
+     add = TRUE, lwd = 2)
+curve(invlogit(cbind(1, 0.5, x, x*0.5) %*% coef(fit.3)),
+     add = TRUE, col = "red", lwd = 2)
+curve(invlogit(cbind(1, 3.5, x, x*3.5) %*% coef(fit.3)),
+     add = TRUE, col = "pink", lwd = 2)
+curve(invlogit(cbind(1, 0, x) %*% coef(fit.2)),
+     add = TRUE, lwd = 1, lty=2)
+curve(invlogit(cbind(1, 0.5, x) %*% coef(fit.2)),
+     add = TRUE, col = "red", lwd = 1, lty=2)
+text(2,0.9, "distance = 0m")
+text(4,0.5, "distance = 50m")
+text(6,0.15, "distance = 350m")
+```
+
+So you can actually see in the left panel the lines intersect at about 300m, so after 350m the model predicts lower arsenic levels lead to higher probability of changing than not. On the right panel this is shown by the pink line actually having a negative slope. But basically the further away you are from a safe well, the weaker the arsenic effect. The switch is not sth you would intepret (there are no data points around there anyway), I'm just plotting the model curves. 
+
+## Adding more social predictors
+
+`assoc` is whether or not a memeber of the household is a member of any community organization, and `educ4` is an additional 4 years of schooling (this is apparently jsut a quick and dirty discretization, but doens't affect resutls much )
+``` {r, echo = FALSE}
+educ4 <- educ/4
+fit.5 <- glm (switch ~ c.dist100 + c.arsenic + c.dist100*c.arsenic + assoc + educ4 , family = binomial(link = "logit"))
+display(fit.5)
+```
+
+The association coefficient is surprisingly negative, but it also isn't statistically significant, so we remove it.
+
+The education coefficient is positive in the direction we expect - every additional four years of ducation mean a 4% increased probability in switching. And it is significant, so we leave it in. 
+
+
+``` {r, echo = FALSE}
+
+fit.6 <- glm (switch ~ c.dist100 + c.arsenic + c.dist100*c.arsenic  + educ4 , family = binomial(link = "logit"))
+display(fit.6)
+```
+
+### Adding more interactions
+
+Inputs with large main effects, in general include their interactions as well. 
+
+``` {r, echo = FALSE}
+c.educ4 <- educ4-mean(educ4)
+
+fit.7 <- glm (switch ~ c.dist100 + c.arsenic + c.educ4 + c.dist100*c.arsenic +
+                c.dist100*c.educ4 + c.arsenic*c.educ4, family = binomial(link = "logit"))
+display(fit.7)
+```
+
+So the new interactions can be itnerpreted:
+* **Coefficent of distace and education**: For each additional 100 meters of distance to the nearest well, .32 is added to the education coefficient. Or likewise, for each additional 4 years of education, the distance coefficient (which is negative on average) increases by .32. So higher education reduces distance's negative association. 
+* ** Coefficient of arsenic and education** for each additional 4 years of education, the arsenic coefficient increases by .07. Arsenic has a positive effect on average, and more education increases it's positive correlation - more educated people are more sensitive to increased arsenic levels. 
+
+**Interpretation would be even easier if we had -- from the start -- standardized teh continuous variables by subtracting the mean and dividing by 2 standard deviations!**
+
+
+
