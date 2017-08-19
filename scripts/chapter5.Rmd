@@ -357,4 +357,124 @@ So the new interactions can be itnerpreted:
 **Interpretation would be even easier if we had -- from the start -- standardized teh continuous variables by subtracting the mean and dividing by 2 standard deviations!**
 
 
+## Evaluating, checking and comparing fitted logistic regressions
 
+### Residuals and binned residuals.
+
+Residual is observed minus expected. 
+
+$residual_i = y_i-E(y_i|X_i) = logit^{-1}(X_i \beta)$
+
+So if the expected value is e.g. 0.7 (70 %), then the residual might be 30 or minus 70, depending on whether we observed a 1 or a 0. So plotting this won't really work ;)
+
+```{r}
+## alternative way - prediciton function (make sure you type response!)
+# plot(predict(fit.7, type="response"), switch - predict(fit.7, type="response"))
+par(mfrow = c(1,2))
+
+pred.7 <- fit.7$fitted.values
+plot(pred.7, switch - pred.7)
+# binned residuals, first need to group them predictions into 40 bins (use Hmisc::cut2)
+# then summarize the residual averages in each group.
+# but what about the lines? they are meant to be 2 times sqrt(p(1-p)/n)
+library(dplyr)
+binned.res <- data.frame(orig = pred.7, resid = switch - pred.7)
+binned.res %>% 
+  mutate(binz = Hmisc::cut2(orig, g=40)) %>% 
+  arrange(orig) %>%
+  group_by(binz) %>% 
+  summarize(xbar = mean(orig),
+            ybar = mean(resid), 
+            n = n(),
+            error = 2*sd(resid)/sqrt(n) ) -> binned.res
+# plot
+plot(binned.res$xbar, binned.res$ybar)
+lines(binned.res$xbar, binned.res$error)
+lines(binned.res$xbar, -binned.res$error)
+abline( h= 0)
+```
+Instead we plot binned residuals, so divide the data int categories based on their fitted valuesand then plot the average residual in that bin. 
+
+This can be done relative to input varz as well:
+```{r}
+par(mfrow = c(1,2))
+all.data <- data.frame(orig = pred.7, 
+                         resid = switch - pred.7,
+                         dist100 = dist100,
+                         arsenic = arsenic)
+all.data %>% 
+  mutate(binz = Hmisc::cut2(dist100, g=40)) %>% 
+  arrange(dist100) %>%
+  group_by(binz) %>% 
+  summarize(xbar = mean(dist100),
+            ybar = mean(resid), 
+            n = n(),
+            error = 2*sd(resid)/sqrt(n) ) -> binned.res
+# plot
+plot(binned.res$xbar, binned.res$ybar, pch = 19, cex = 0.7, main = "distance to nearest well")
+lines(binned.res$xbar, binned.res$error)
+lines(binned.res$xbar, -binned.res$error)
+abline( h= 0)
+all.data %>% 
+  mutate(binz = Hmisc::cut2(arsenic, g=40)) %>% 
+  arrange(arsenic) %>%
+  group_by(binz) %>% 
+  summarize(xbar = mean(arsenic),
+            ybar = mean(resid), 
+            n = n(),
+            error = 2*sd(resid)/sqrt(n) ) -> binned.res
+# plot
+plot(binned.res$xbar, binned.res$ybar, pch = 19, cex = 0.7, main = "arsenic level")
+lines(binned.res$xbar, binned.res$error)
+lines(binned.res$xbar, -binned.res$error)
+abline( h= 0)
+
+```
+
+In the second, arsenic plot the pattern is worrying:
+
+* the first two or three bins have a really low residual on average, so the prediction is too high for swithcing, where in reality fewer switch.
+* overall you can also see a pattern - in the middle the residuals are more likely to be positive and negative at high levels of arsenic. 
+
+This indicates we might want to cosnider a log transformaiton of arsenic - the rising and then falling pattern of residuals
+
+### Logarigthmic transfromation 
+
+```{r}
+log.arsenic <- log(arsenic)
+c.log.arsenic <- log.arsenic - mean(log.arsenic)
+
+fit.8 <- glm (switch ~ c.dist100 + c.log.arsenic + c.educ4 + c.dist100*c.log.arsenic +
+                c.dist100*c.educ4 + c.log.arsenic*c.educ4, family = binomial(link = "logit"))
+display(fit.8)
+fit.9 <- glm (switch ~ c.dist100 + log.arsenic + c.educ4 + c.dist100*log.arsenic +
+                c.dist100*c.educ4 + log.arsenic*c.educ4, family = binomial(link = "logit"))
+```
+```{r}
+plot( jitter.switch ~ arsenic, main = "(distance at 0 and 50 meters (red)")
+curve(invlogit(cbind(1, 0, log(x), mean(educ4), log(x)*0, 0, log(x)*mean(educ4)) %*% coef(fit.9)),
+     add = TRUE, lwd = 2)
+curve(invlogit(cbind(1, 0.5, log(x), mean(educ4), log(x)*0.5, 0.5*mean(educ4), log(x)*mean(educ4)) %*% coef(fit.9)),
+     add = TRUE, lwd = 2, col = "red")
+text(2,0.9, "distance = 0m")
+text(4,0.5, "distance = 50m")
+
+pred.8 <- fit.8$fitted.values
+all.data <- data.frame(orig = pred.8, 
+                         resid = switch - pred.8,
+                         dist100 = dist100,
+                         arsenic = arsenic)
+all.data %>% 
+  mutate(binz = Hmisc::cut2(arsenic, g=40)) %>% 
+  arrange(arsenic) %>%
+  group_by(binz) %>% 
+  summarize(xbar = mean(arsenic),
+            ybar = mean(resid), 
+            n = n(),
+            error = 2*sd(resid)/sqrt(n) ) -> binned.res
+# plot
+plot(binned.res$xbar, binned.res$ybar, pch = 19, cex = 0.7, main = "arsenic level")
+lines(binned.res$xbar, binned.res$error)
+lines(binned.res$xbar, -binned.res$error)
+abline( h= 0)
+```
